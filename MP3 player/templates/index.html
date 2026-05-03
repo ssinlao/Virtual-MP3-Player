@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pi MP3 Player</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #222; color: white; text-align: center; padding: 50px; }
+        .player-box { background-color: #333; padding: 30px; border-radius: 15px; max-width: 350px; margin: auto; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .controls { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 20px; }
+        button { background-color: #555; color: white; border: none; padding: 15px 20px; border-radius: 50px; font-size: 16px; cursor: pointer; transition: 0.2s; }
+        button:hover { background-color: #777; }
+        #playPauseBtn { background-color: #1DB954; width: 100px; font-weight: bold; }
+        #playPauseBtn:hover { background-color: #1ed760; }
+        #status { margin-top: 20px; font-style: italic; color: #aaa; }
+    </style>
+</head>
+<body>
+
+    <div class="player-box">
+        <h2>🎵 Pi Player</h2>
+        <p>Current Song: <strong id="song-title">Loading...</strong></p>
+        
+        <div class="controls">
+            <button onclick="sendCommand('prev')">⏮ Prev</button>
+            <button id="playPauseBtn" onclick="togglePlay()">▶ Play</button>
+            <button onclick="sendCommand('next')">⏭ Next</button>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <label for="volumeSlider">Volume: <span id="vol-text" style="font-weight: bold;">100</span>%</label><br>
+            <input type="range" id="volumeSlider" min="0" max="100" value="100" oninput="changeVolume(this.value)" style="width: 80%; margin-top: 10px;">
+        </div>
+
+        <div style="margin-top: 20px; display: flex; justify-content: center; align-items: center;">
+            <span id="time-current" style="font-size: 14px;">0:00</span>
+            <input type="range" id="progressBar" min="0" max="100" value="0" onchange="seekAudio(this.value)" style="width: 70%; margin: 0 10px;">
+            <span id="time-total" style="font-size: 14px;">0:00</span>
+        </div>
+        
+        <div id="status">Status: Waiting...</div>
+    </div>
+
+    <script>
+        let isPlaying = false;
+
+        function togglePlay() {
+            const btn = document.getElementById('playPauseBtn');
+            if (isPlaying) {
+                sendCommand('stop');
+                btn.innerHTML = "▶ Play";
+                btn.style.backgroundColor = "#1DB954"; 
+                isPlaying = false;
+            } else {
+                sendCommand('play');
+                btn.innerHTML = "⏸ Pause";
+                btn.style.backgroundColor = "#e74c3c"; 
+                isPlaying = true;
+            }
+        }
+
+        function updateSongTitle() {
+            fetch('/api/current_song')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('song-title').innerText = data.song; 
+                });
+        }
+
+        function sendCommand(action) {
+            document.getElementById('status').innerText = "Sending command...";
+            fetch('/api/' + action)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = "Status: " + data.message;
+                    
+                    if(action === 'next' || action === 'prev') {
+                        updateSongTitle();
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').innerText = "Error connecting to server.";
+                });
+        }
+
+        function changeVolume(level) {
+            document.getElementById('vol-text').innerText = level;
+            
+            fetch('/api/volume/' + level)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = "Status: " + data.message;
+                })
+                .catch(error => {
+                    document.getElementById('status').innerText = "Error adjusting volume.";
+                });
+        }
+
+        // ==========================================
+        // Progress Bar & Scrubbing Logic
+        // ==========================================
+        let isDragging = false; 
+
+        document.getElementById('progressBar').addEventListener('mousedown', () => isDragging = true);
+        document.getElementById('progressBar').addEventListener('mouseup', () => isDragging = false);
+
+        function formatTime(ms) {
+            if (ms < 0) return "0:00";
+            let totalSeconds = Math.floor(ms / 1000);
+            let minutes = Math.floor(totalSeconds / 60);
+            let seconds = totalSeconds % 60;
+            return minutes + ":" + (seconds < 10 ? "0" : "") + seconds; 
+        }
+
+        function updateProgress() {
+            if (!isPlaying || isDragging) return; 
+
+            fetch('/api/progress')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.total > 0) {
+                        document.getElementById('progressBar').max = data.total;
+                        document.getElementById('progressBar').value = data.current;
+                        
+                        document.getElementById('time-current').innerText = formatTime(data.current);
+                        document.getElementById('time-total').innerText = formatTime(data.total);
+                    }
+                });
+        }
+
+        setInterval(updateProgress, 1000); 
+
+        function seekAudio(newTimeMs) {
+            fetch('/api/seek/' + newTimeMs)
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('time-current').innerText = formatTime(newTimeMs);
+                });
+        }
+
+        // Run this once when the page first loads
+        updateSongTitle();
+    </script>
+</body>
+</html>
