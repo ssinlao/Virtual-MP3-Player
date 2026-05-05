@@ -15,7 +15,7 @@
 
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            background-color: #1a1a1a; 
+            background-color: #92cbfa; 
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -108,14 +108,13 @@
             align-items: center;        /* vertical */
         }
 
-        /* --- PROGRESS BAR --- */
         .progress-container { margin-top: auto; }
         #progressBar { width: 100%; accent-color: var(--accent-blue); }
         .time-info { display: flex; justify-content: space-between; font-size: 11px; color: #666; }
 
-        /* --- SYSTEM LOGIC MONITOR (BOTTOM HALF) --- */
         .dashboard {
-            width: 540px;
+            width: 840px;
+            height: 500px;
             background: var(--terminal-bg);
             border: 2px solid #333;
             border-radius: 10px;
@@ -136,7 +135,7 @@
         }
 
         #logic-feed {
-            height: 140px;
+            height: 480px;
             overflow-y: auto;
             font-family: 'Courier New', monospace;
             font-size: 13px;
@@ -167,8 +166,8 @@
 
         <div class="controls-container">
             <div class="click-wheel">
-                <button class="wheel-btn btn-top" onclick="sendCommand('/api/volume/<int:level>')">+</button>
-                <button class="wheel-btn btn-bottom" onclick="sendCommand('/api/volume/<int:level>')">-</button>
+                <button class="wheel-btn btn-top" onclick="changeVolume(10)">+</button>
+                <button class="wheel-btn btn-bottom" onclick="changeVolume(-10)">-</button>
                 <button class="wheel-btn btn-left" onclick="sendCommand('prev')">⏮</button>
                 <button class="wheel-btn btn-right" onclick="sendCommand('next')">⏭</button>
                 <div class="center-button" id="playPauseBtn" onclick="togglePlay()">▶ ||</div>
@@ -187,84 +186,110 @@
     </div>
 
     <script>
-        let isPlaying = false;
-        let isDragging = false;
+        // System State Simulation
+        let currentVolume = 50;
+        const logicFeed = document.getElementById('logic-feed');
 
-        function logToDashboard(action) {
-            const feed = document.getElementById('logic-feed');
+        /**
+         * Helper to simulate the System Dashboard Log
+         * Types: bus (yellow), proc (green), ram (purple)
+         */
+        function addLog(message, type = 'bus') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString().split(' ')[0];
             
-            const logicSteps = [
-                `<span class="log-bus">[Control Bus]</span> Interrupt Request (IRQ) from Click Wheel: ${action}`,
-                `<span class="log-ram">[RAM]</span> Fetching instruction pointer for 'cmd_${action}'`,
-                `<span class="log-proc">[Micro-Processor]</span> Executing opcode via Address Bus: 0x${Math.floor(Math.random()*1000)}`,
-                `<span class="log-bus">[Data Bus]</span> Writing payload to Output Port...`
-            ];
+            let typeClass = 'log-bus';
+            if (type === 'proc') typeClass = 'log-proc';
+            if (type === 'ram') typeClass = 'log-ram';
 
-            logicSteps.forEach((step, index) => {
-                setTimeout(() => {
-                    const div = document.createElement('div');
-                    div.className = 'log-entry';
-                    div.innerHTML = step;
-                    feed.appendChild(div);
-                    feed.scrollTop = feed.scrollHeight;
-                }, index * 100);
-            });
-        }
-
-        function togglePlay() {
-            if (isPlaying) {
-                sendCommand('stop');
-                isPlaying = false;
-            } else {
-                sendCommand('play');
-                isPlaying = true;
-            }
-        }
-
-        function sendCommand(action) {
-            logToDashboard(action);
-            fetch('/api/' + action)
-                .then(res => res.json())
-                .then(data => {
-                    if(action === 'next' || action === 'prev' || action === 'play') updateSongTitle();
-                    isPlaying = True; // song auto starts when skipped to
-                });
+            entry.innerHTML = `<span style="color: #666">[${timestamp}]</span> <span class="${typeClass}">${message}</span>`;
+            logicFeed.prepend(entry); // Newest logs at the top
         }
 
         function updateSongTitle() {
-            fetch('/api/current_song')
+            fetch('/status')
                 .then(res => res.json())
                 .then(data => {
-                    document.getElementById('song-title').innerText = data.song; 
-                });
-        }
+                    if (data.current_song && data.current_song !== 'No Media') {
+                        document.getElementById('song-title').innerText = data.current_song;
+                    }
+                    const btn = document.getElementById('playPauseBtn');
+                    btn.style.color = data.is_playing ? '#3498db' : '#333';
 
-        function updateProgress() {
-            if (!isPlaying || isDragging) return; 
-            fetch('/api/progress')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.total > 0) {
-                        const pb = document.getElementById('progressBar');
-                        pb.max = data.total;
-                        pb.value = data.current;
-                        document.getElementById('time-current').innerText = formatTime(data.current);
-                        document.getElementById('time-total').innerText = formatTime(data.total);
+                    if (!isDragging && data.pos >= 0) {
+                        document.getElementById('progressBar').value = data.pos * 100;
                     }
                 });
         }
 
-        function formatTime(ms) {
-            let s = Math.floor(ms / 1000);
-            return Math.floor(s/60) + ":" + (s%60 < 10 ? "0" : "") + (s%60);
+        /**
+         * 1. INTERRUPT TRIGGER (The 'Electrical' Signal)
+         */
+        function sendCommand(action, payload = null) {
+            addLog(`INTERRUPT: Button for ${action.toUpperCase()} sent to CPU`, 'bus');
+            
+            let formData = new FormData();
+            if (payload !== null) {
+                // Mapping UI names to Flask expected names
+                const key = action === 'volume' ? 'level' : 'pos';
+                formData.append(key, payload);
+            }
+
+            // Map 'prev' and 'next' to the backend routes
+            const route = `/${action}`;
+
+            fetch(route, { method: 'POST', body: (payload !== null ? formData : null) })
+                .then(res => res.json())
+                .then(data => {
+                    addLog(`CPU: acknowledged I/O request ${action.toUpperCase()}`, 'proc');
+                    if (['play', 'next', 'prev'].includes(action)) updateSongTitle();
+                })
+                .catch(err => addLog(`ERROR: Bus timeout or Hardware failure`, 'proc'));
         }
 
-        function seekAudio(val) {
-            fetch('/api/seek/' + val);
+        /**
+         * 2. UI SPECIFIC HANDLERS
+         */
+        function togglePlay() {
+            // We call the '/play' route which handles the toggle in our simulation
+            sendCommand('play');
         }
 
-        setInterval(updateProgress, 1000);
-        updateSongTitle();
+        function changeVolume(delta) {
+            currentVolume = Math.min(100, Math.max(0, currentVolume + delta));
+            addLog(`VOLUME CHANGE: volume set to ${currentVolume}%`);
+            sendCommand('volume', currentVolume);
+        }
+
+        function seekAudio(value) {
+            // Map 0-100 UI scale to 0.0-1.0 hardware scale
+            const pos = value / 100;
+            addLog(`SEEK: Moving laser head to offset ${pos}`, 'ram');
+            sendCommand('seek', pos);
+        }
+
+        /**
+         * 3. TELEMETRY POLLING (Updating the LCD Screen)
+         */
+        setInterval(() => {
+            fetch('/status')
+                .then(res => res.json())
+                .then(data => {
+                    // Update Progress Bar
+                    const progBar = document.getElementById('progressBar');
+                    progBar.value = data.pos * 100;
+
+                    // Update Song Title
+                    const title = document.getElementById('song-title');
+                    if (data.current_song !== "No Media") {
+                        title.innerText = data.current_song;
+                    }
+                });
+        }, 1000);
+
+        // Initial log
+        addLog("SYSTEM: Kernel initialized. DMA Buffers clear.", "proc");
     </script>
 </body>
 </html>

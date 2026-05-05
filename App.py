@@ -3,7 +3,7 @@ import vlc
 import threading
 import queue
 import time
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, request, jsonify
 
 # ==========================================
 # WINDOWS OS FIX: Locate the VLC Device Driver
@@ -15,107 +15,135 @@ except AttributeError:
 
 app = Flask(__name__)
 
-# OS CONCEPT 1: Inter-Process Communication (IPC) via Queues
-command_queue = queue.Queue()
+# --- HARDWARE MEMORY MAP ---
+COMMAND_QUEUE = queue.Queue()  # FIFO for deferred interrupt processing
+AUDIO_RING_BUFFER = queue.Queue(maxsize=10) 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def get_playlist():
-    playlist_files = [f.replace('.mp3', '') for f in os.listdir('.') if f.endswith('.mp3')]
-    if len(playlist_files) == 0:
-        return ["No Music Found"]
-    return playlist_files
-
-playlist = get_playlist()
+# Scan for MP3s in the root folder
+playlist = [os.path.join(BASE_DIR, f) for f in os.listdir(BASE_DIR) if f.endswith('.mp3')]
 current_track_index = 0
-player = vlc.MediaPlayer()
 
-# ==========================================
-# OS CONCEPT 2: Process Management (Consumer)
-# ==========================================
+# Peripheral Hardware (VLC)
+player = vlc.MediaPlayer()
+# --- 1. INTERRUPT SERVICE ROUTINE (ISR) ---
+def gpio_interrupt_handler(signal_type, payload=None):
+    """
+    Simulates a Hardware Interrupt handler.
+    Triggered by the Flask 'Signal Bus' (UI Buttons).
+    """
+    print(f"\n[IRQ] Interrupt Detected on GPIO_{signal_type}")
+    COMMAND_QUEUE.put({'type': signal_type, 'data': payload})
+
+# --- 2. THE MAIN SYSTEM LOOP (CPU) ---
 def audio_manager_thread():
     global current_track_index
-    print("\n[OS Scheduler] 🧵 Audio Subsystem Thread Initialized and Waiting...\n")
+    print(f"[SYSTEM] Booting... Found {len(playlist)} files in root.")
+
+    if playlist:
+        media = vlc.Media(playlist[current_track_index].replace('\\', '/'))
+        player.set_media(media)
+        print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
     
     while True:
-        # The thread sleeps here until the OS passes a message into the queue
-        command = command_queue.get()
-        
-        if command == "PLAY":
-            player.stop()
-            if playlist[0] != "No Music Found":
-                song_file = playlist[current_track_index] + ".mp3"
-                media = vlc.Media(song_file)
-                player.set_media(media)
-                player.play()
-                print(f"[Audio Thread] 🎵 Hardware I/O Active: Playing {song_file}")
-                
-        elif command == "STOP":
-            player.stop()
-            print("[Audio Thread] ⏹️ Interrupt Handled: Hardware I/O Halted.")
+        # A. Command Decoder: Only process if there's an interrupt in the queue
+        if not COMMAND_QUEUE.empty():
+            cmd = COMMAND_QUEUE.get()
+            print(f"[CPU] Execution Unit: Handling {cmd['type']}")
             
-        elif command == "NEXT":
-            current_track_index = (current_track_index + 1) % len(playlist)
-            command_queue.put("PLAY")
+            if cmd['type'] == "PLAY":
+                if player.is_playing():
+                    player.pause()
+                else:
+                    player.play()
             
-        elif command == "PREV":
-            current_track_index = (current_track_index - 1) % len(playlist)
-            command_queue.put("PLAY")
+            elif cmd['type'] == "NEXT":
+                if playlist:
+                    current_track_index = (current_track_index + 1) % len(playlist)
+                    media = vlc.Media(playlist[current_track_index])
+                    player.set_media(media)
+                    player.play()
+                    print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
             
-        elif command.startswith("VOL:"):
-            level = int(command.split(":")[1])
-            player.audio_set_volume(level)
-            print(f"[Audio Thread] 🔊 Hardware Driver updated volume to {level}%")
+            elif cmd['type'] == "PREV":
+                if playlist:
+                    current_track_index = (current_track_index - 1) % len(playlist)
+                    media = vlc.Media(playlist[current_track_index])
+                    player.set_media(media)
+                    player.play()
+                    print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
+            
+            elif cmd['type'] == "VOLUME":
+                player.audio_set_volume(int(cmd['data']))
 
-        command_queue.task_done()
+            elif cmd['type'] == "SEEK":
+                player.set_position(float(cmd['data']))
 
-# Start the OS Audio Subsystem Thread BEFORE the web server starts
-audio_thread = threading.Thread(target=audio_manager_thread, daemon=True)
-audio_thread.start()
+        # B. DMA & Buffer Management (Only runs if music is active)
+        if player.is_playing():
+            if not AUDIO_RING_BUFFER.full():
+                AUDIO_RING_BUFFER.put(f"DATA_SEGMENT_{time.time()}")
+                # print(f"[DMA] Buffering... {AUDIO_RING_BUFFER.qsize()}/10") # Quiet mode
+
+            if not AUDIO_RING_BUFFER.empty():
+                AUDIO_RING_BUFFER.get()
+
+        time.sleep(0.1) # 100ms system tick
+
+# Start the 'Microcontroller' Thread
+threading.Thread(target=audio_manager_thread, daemon=True).start()
+
+# --- 3. SIGNAL BUS (Flask Routes) ---
+# These must match the 'fetch' routes in your index.html
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# ==========================================
-# OS CONCEPT 3: Flask Producer Threads
-# ==========================================
-@app.route('/api/play')
-def play_music():
-    command_queue.put("PLAY")
-    return jsonify({"status": "success", "message": "Play signal sent to OS thread."})
+@app.route('/play', methods=['POST'])
+def trigger_play():
+    gpio_interrupt_handler("PLAY")
+    return jsonify({"status": "ACK"})
 
-@app.route('/api/stop')
-def stop_music():
-    command_queue.put("STOP")
-    return jsonify({"status": "success", "message": "Stop signal sent to OS thread."})
+@app.route('/next', methods=['POST'])
+def trigger_next():
+    gpio_interrupt_handler("NEXT")
+    return jsonify({"status": "ACK"})
 
-@app.route('/api/next')
-def next_track():
-    command_queue.put("NEXT")
-    return jsonify({"status": "success", "message": "Next signal sent to OS thread."})
+@app.route('/prev', methods=['POST'])
+def trigger_prev():
+    gpio_interrupt_handler("PREV")
+    return jsonify({"status": "ACK"})
 
-@app.route('/api/prev')
-def prev_track():
-    command_queue.put("PREV")
-    return jsonify({"status": "success", "message": "Prev signal sent to OS thread."})
+@app.route('/volume', methods=['POST'])
+def trigger_volume():
+    level = request.form.get('level')
+    gpio_interrupt_handler("VOLUME", payload=level)
+    return jsonify({"status": "ACK"})
 
-@app.route('/api/volume/<int:level>')
-def set_volume(level):
-    command_queue.put(f"VOL:{level}")
-    return jsonify({"status": "success", "message": "Volume signal sent."})
+@app.route('/seek', methods=['POST'])
+def trigger_seek():
+    pos = request.form.get('pos')
+    gpio_interrupt_handler("SEEK", payload=pos)
+    return jsonify({"status": "ACK"})
 
-@app.route('/api/current_song')
-def get_current_song():
-    return jsonify({"song": playlist[current_track_index]})
+@app.route('/status')
+def get_status():
+    # Polling route for the UI LCD
+    song_name = os.path.basename(playlist[current_track_index]) if playlist else "No Media"
+    return jsonify({
+        "pos": player.get_position(),
+        "is_playing": player.is_playing(),
+        "current_song": song_name
+    })
 
-@app.route('/api/progress')
+@app.route('/progress')
 def get_progress():
-    return jsonify({"current": player.get_time(), "total": player.get_length()})
-
-@app.route('/api/seek/<int:time_ms>')
-def seek_audio(time_ms):
-    player.set_time(time_ms)
-    return jsonify({"status": "success", "message": "Scrubbed to new time."})
+    return jsonify({
+        "current": player.get_time(),
+        "total": player.get_length()
+    })
 
 if __name__ == '__main__':
-    # use_reloader=False is CRITICAL for multithreading on Windows so it doesn't duplicate the audio thread
+    # use_reloader=False prevents the thread from starting twice
     app.run(debug=True, port=5000, use_reloader=False)
