@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pi Player - System Dashboard</title>
+    <style>
+        :root {
+            --device-bg: #e0e0e0;
+            --screen-bg: #fdfdfd;
+            --accent-blue: #3498db;
+            --terminal-green: #00ff41;
+            --terminal-bg: #0d0d0d;
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background-color: #1a1a1a; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        /* --- IPOD CLASSIC CSS INTERFACE --- */
+        .ipod-body { 
+            background: var(--device-bg); 
+            width: 500px; 
+            height: 280px; 
+            border-radius: 30px; 
+            display: flex;
+            align-items: center;
+            padding: 20px;
+            box-shadow: inset 0 2px 5px rgba(255,255,255,0.8), 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #bbb;
+            margin-bottom: 40px;
+        }
+
+        .screen {
+            background: var(--screen-bg);
+            width: 240px;
+            height: 180px;
+            border-radius: 10px;
+            border: 3px solid #666;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            box-sizing: border-box;
+            color: #333;
+        }
+
+        #song-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .controls-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .click-wheel {
+            width: 170px;
+            height: 170px;
+            background: #fff;
+            border-radius: 50%;
+            position: relative;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .wheel-btn {
+            position: absolute;
+            background: none;
+            border: none;
+            color: #888;
+            font-weight: bold;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 5px;
+            transition: color 0.2s;
+        }
+
+        .wheel-btn:hover { color: var(--accent-blue); }
+        .btn-top { top: 10px; }
+        .btn-bottom { bottom: 10px; }
+        .btn-left { left: 10px; }
+        .btn-right { right: 10px; }
+
+        .center-button {
+            width: 60px;
+            height: 60px;
+            background: #eee;
+            border-radius: 50%;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+
+        /* --- PROGRESS BAR --- */
+        .progress-container { margin-top: auto; }
+        #progressBar { width: 100%; accent-color: var(--accent-blue); }
+        .time-info { display: flex; justify-content: space-between; font-size: 11px; color: #666; }
+
+        /* --- SYSTEM LOGIC MONITOR (BOTTOM HALF) --- */
+        .dashboard {
+            width: 540px;
+            background: var(--terminal-bg);
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.4);
+        }
+
+        .dashboard-title {
+            color: #aaa;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-bottom: 1px solid #222;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #logic-feed {
+            height: 140px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .log-entry { margin-bottom: 5px; }
+        .log-bus { color: #f1c40f; } /* Yellow for Bus/Signal */
+        .log-proc { color: var(--terminal-green); font-weight: bold; } /* Green for CPU */
+        .log-ram { color: #9b59b6; } /* Purple for RAM */
+    </style>
+</head>
+<body>
+
+    <div class="ipod-body">
+        <div class="screen">
+            <div style="width: 60px; height: 60px; background: #ddd; margin-bottom: 10px;"></div>
+            <div id="song-title">Select Track...</div>
+            
+            <div class="progress-container">
+                <input type="range" id="progressBar" min="0" max="100" value="0" onchange="seekAudio(this.value)">
+                <div class="time-info">
+                    <span id="time-current">0:00</span>
+                    <span id="time-total">0:00</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-container">
+            <div class="click-wheel">
+                <button class="wheel-btn btn-top" onclick="sendCommand('menu')">MENU</button>
+                <button class="wheel-btn btn-bottom" id="playPauseBtn" onclick="togglePlay()">▶ ||</button>
+                <button class="wheel-btn btn-left" onclick="sendCommand('prev')">⏮</button>
+                <button class="wheel-btn btn-right" onclick="sendCommand('next')">⏭</button>
+                <div class="center-button" onclick="sendCommand('select')"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <div class="dashboard-title">
+            <span>System Architecture Monitor</span>
+            <span style="color: var(--terminal-green)">● BUS ACTIVE</span>
+        </div>
+        <div id="logic-feed">
+            <div class="log-entry">Waiting for interrupt...</div>
+        </div>
+    </div>
+
+    <script>
+        let isPlaying = false;
+        let isDragging = false;
+
+        function logToDashboard(action) {
+            const feed = document.getElementById('logic-feed');
+            
+            // Following the Architecture in your Figma Diagram
+            const logicSteps = [
+                `<span class="log-bus">[Control Bus]</span> Interrupt Request (IRQ) from Click Wheel: ${action}`,
+                `<span class="log-ram">[RAM]</span> Fetching instruction pointer for 'cmd_${action}'`,
+                `<span class="log-proc">[Micro-Processor]</span> Executing opcode via Address Bus: 0x${Math.floor(Math.random()*1000)}`,
+                `<span class="log-bus">[Data Bus]</span> Writing payload to Output Port...`
+            ];
+
+            logicSteps.forEach((step, index) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = 'log-entry';
+                    div.innerHTML = step;
+                    feed.appendChild(div);
+                    feed.scrollTop = feed.scrollHeight;
+                }, index * 100);
+            });
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                sendCommand('stop');
+                isPlaying = false;
+            } else {
+                sendCommand('play');
+                isPlaying = true;
+            }
+        }
+
+        function sendCommand(action) {
+            logToDashboard(action);
+            fetch('/api/' + action)
+                .then(res => res.json())
+                .then(data => {
+                    if(action === 'next' || action === 'prev' || action === 'play') updateSongTitle();
+                });
+        }
+
+        function updateSongTitle() {
+            fetch('/api/current_song')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('song-title').innerText = data.song; 
+                });
+        }
+
+        function updateProgress() {
+            if (!isPlaying || isDragging) return; 
+            fetch('/api/progress')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.total > 0) {
+                        const pb = document.getElementById('progressBar');
+                        pb.max = data.total;
+                        pb.value = data.current;
+                        document.getElementById('time-current').innerText = formatTime(data.current);
+                        document.getElementById('time-total').innerText = formatTime(data.total);
+                    }
+                });
+        }
+
+        function formatTime(ms) {
+            let s = Math.floor(ms / 1000);
+            return Math.floor(s/60) + ":" + (s%60 < 10 ? "0" : "") + (s%60);
+        }
+
+        function seekAudio(val) {
+            fetch('/api/seek/' + val);
+        }
+
+        setInterval(updateProgress, 1000);
+        updateSongTitle();
+    </script>
+</body>
+</html>
