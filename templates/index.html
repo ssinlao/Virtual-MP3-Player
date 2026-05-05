@@ -188,7 +188,19 @@
     <script>
         // System State Simulation
         let currentVolume = 50;
+        let isDragging = false;
         const logicFeed = document.getElementById('logic-feed');
+
+        /**
+         * Helper to convert milliseconds to MM:SS format
+         */
+        function formatTime(ms) {
+            if (!ms || ms < 0) return '0:00';
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
 
         /**
          * Helper to simulate the System Dashboard Log
@@ -269,6 +281,13 @@
             sendCommand('seek', pos);
         }
 
+        // Track when user is dragging the progress bar
+        const progressBar = document.getElementById('progressBar');
+        progressBar.addEventListener('mousedown', () => { isDragging = true; });
+        progressBar.addEventListener('mouseup', () => { isDragging = false; });
+        progressBar.addEventListener('touchstart', () => { isDragging = true; });
+        progressBar.addEventListener('touchend', () => { isDragging = false; });
+
         /**
          * 3. TELEMETRY POLLING (Updating the LCD Screen)
          */
@@ -278,13 +297,23 @@
                 .then(data => {
                     // Update Progress Bar
                     const progBar = document.getElementById('progressBar');
-                    progBar.value = data.pos * 100;
+                    if (!isDragging) {
+                        progBar.value = data.pos * 100;
+                    }
 
                     // Update Song Title
                     const title = document.getElementById('song-title');
                     if (data.current_song !== "No Media") {
                         title.innerText = data.current_song;
                     }
+                });
+
+            // Fetch time data from /progress endpoint
+            fetch('/progress')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('time-current').innerText = formatTime(data.current);
+                    document.getElementById('time-total').innerText = formatTime(data.total);
                 });
         }, 1000);
 
