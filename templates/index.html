@@ -90,8 +90,8 @@
         }
 
         .wheel-btn:hover { color: var(--accent-blue); }
-        .btn-top { top: 10px; }
-        .btn-bottom { bottom: 10px; }
+        .btn-top { top: 10px; font-size: larger;}
+        .btn-bottom { bottom: 10px; font-size: larger;}
         .btn-left { left: 10px; }
         .btn-right { right: 10px; }
 
@@ -102,6 +102,10 @@
             border-radius: 50%;
             border: 1px solid #ccc;
             cursor: pointer;
+
+            display: flex;              /* ADD THIS */
+            justify-content: center;    /* horizontal */
+            align-items: center;        /* vertical */
         }
 
         /* --- PROGRESS BAR --- */
@@ -163,11 +167,11 @@
 
         <div class="controls-container">
             <div class="click-wheel">
-                <button class="wheel-btn btn-top" onclick="sendCommand('menu')">MENU</button>
-                <button class="wheel-btn btn-bottom" id="playPauseBtn" onclick="togglePlay()">▶ ||</button>
+                <button class="wheel-btn btn-top" onclick="sendCommand('/api/volume/<int:level>')">+</button>
+                <button class="wheel-btn btn-bottom" onclick="sendCommand('/api/volume/<int:level>')">-</button>
                 <button class="wheel-btn btn-left" onclick="sendCommand('prev')">⏮</button>
                 <button class="wheel-btn btn-right" onclick="sendCommand('next')">⏭</button>
-                <div class="center-button" onclick="sendCommand('select')"></div>
+                <div class="center-button" id="playPauseBtn" onclick="togglePlay()">▶ ||</div>
             </div>
         </div>
     </div>
@@ -189,7 +193,6 @@
         function logToDashboard(action) {
             const feed = document.getElementById('logic-feed');
             
-            // Following the Architecture in your Figma Diagram
             const logicSteps = [
                 `<span class="log-bus">[Control Bus]</span> Interrupt Request (IRQ) from Click Wheel: ${action}`,
                 `<span class="log-ram">[RAM]</span> Fetching instruction pointer for 'cmd_${action}'`,
@@ -224,6 +227,7 @@
                 .then(res => res.json())
                 .then(data => {
                     if(action === 'next' || action === 'prev' || action === 'play') updateSongTitle();
+                    isPlaying = True; // song auto starts when skipped to
                 });
         }
 
