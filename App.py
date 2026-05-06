@@ -45,6 +45,9 @@ def audio_manager_thread():
         player.set_media(media)
         print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
     
+    buffer_fill_tick = 0
+    buffer_consume_tick = 0
+    
     while True:
         # A. Command Decoder: Only process if there's an interrupt in the queue
         if not COMMAND_QUEUE.empty():
@@ -64,6 +67,11 @@ def audio_manager_thread():
                     player.set_media(media)
                     player.play()
                     print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
+                    # Clear buffer on song switch
+                    while not AUDIO_RING_BUFFER.empty():
+                        AUDIO_RING_BUFFER.get()
+                    buffer_fill_tick = 0
+                    buffer_consume_tick = 0
             
             elif cmd['type'] == "PREV":
                 if playlist:
@@ -72,6 +80,11 @@ def audio_manager_thread():
                     player.set_media(media)
                     player.play()
                     print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
+                    # Clear buffer on song switch
+                    while not AUDIO_RING_BUFFER.empty():
+                        AUDIO_RING_BUFFER.get()
+                    buffer_fill_tick = 0
+                    buffer_consume_tick = 0
             
             elif cmd['type'] == "VOLUME":
                 player.audio_set_volume(int(cmd['data']))
@@ -81,12 +94,19 @@ def audio_manager_thread():
 
         # B. DMA & Buffer Management (Only runs if music is active)
         if player.is_playing():
-            if not AUDIO_RING_BUFFER.full():
-                AUDIO_RING_BUFFER.put(f"DATA_SEGMENT_{time.time()}")
-                # print(f"[DMA] Buffering... {AUDIO_RING_BUFFER.qsize()}/10") # Quiet mode
+            buffer_fill_tick += 1
+            buffer_consume_tick += 1
 
-            if not AUDIO_RING_BUFFER.empty():
+            # Add data segments to buffer every 250ms
+            if buffer_fill_tick >= 2 and not AUDIO_RING_BUFFER.full():
+                timestamp_code = f"{int(time.time() * 1_000_000) % 1_000_000:06d}"
+                AUDIO_RING_BUFFER.put(timestamp_code)
+                buffer_fill_tick = 0
+
+            # Consume from buffer every 500ms
+            if buffer_consume_tick >= 5 and not AUDIO_RING_BUFFER.empty():
                 AUDIO_RING_BUFFER.get()
+                buffer_consume_tick = 0
 
         time.sleep(0.1) # 100ms system tick
 
@@ -142,6 +162,13 @@ def get_progress():
     return jsonify({
         "current": player.get_time(),
         "total": player.get_length()
+    })
+
+@app.route('/buffer-status')
+def get_buffer_status():
+    return jsonify({
+        "items": list(AUDIO_RING_BUFFER.queue),
+        "capacity": 10
     })
 
 if __name__ == '__main__':
