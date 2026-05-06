@@ -26,17 +26,27 @@
         }
 
         /* --- IPOD CLASSIC CSS INTERFACE --- */
-        .ipod-body { 
-            background: var(--device-bg); 
-            width: 500px; 
-            height: 280px; 
-            border-radius: 30px; 
+        .top-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+            width: 90%;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .ipod-body {
+            background: var(--device-bg);
+            width: 500px;
+            height: 280px;
+            border-radius: 30px;
             display: flex;
             align-items: center;
             padding: 20px;
             box-shadow: inset 0 2px 5px rgba(255,255,255,0.8), 0 10px 30px rgba(0,0,0,0.5);
             border: 1px solid #bbb;
-            margin-bottom: 40px;
+            margin-bottom: 0;
         }
 
         .screen {
@@ -113,7 +123,7 @@
         .time-info { display: flex; justify-content: space-between; font-size: 11px; color: #666; }
 
         .dashboard {
-            width: 840px;
+            width: 90%;
             height: 500px;
             background: var(--terminal-bg);
             border: 2px solid #333;
@@ -138,23 +148,23 @@
             height: 480px;
             overflow-y: auto;
             font-family: 'Courier New', monospace;
-            font-size: 13px;
+            font-size: 30px;
             line-height: 1.5;
         }
 
-        .log-entry { margin-bottom: 5px; }
+        .log-entry { margin-bottom: 30px; }
         .log-bus { color: #f1c40f; } /* Yellow for Bus/Signal */
         .log-proc { color: var(--terminal-green); font-weight: bold; } /* Green for CPU */
         .log-ram { color: #9b59b6; } /* Purple for RAM */
 
         /* --- AUDIO RING BUFFER VISUALIZATION --- */
         .buffer-container {
-            width: 840px;
+            width: 870px;
             background: var(--terminal-bg);
             border: 2px solid #333;
             border-radius: 10px;
             padding: 20px;
-            margin-bottom: 40px;
+            margin-bottom: 0;
             box-shadow: 0 5px 20px rgba(0,0,0,0.4);
         }
 
@@ -205,19 +215,20 @@
 </head>
 <body>
 
-    <div class="ipod-body">
-        <div class="screen">
-            <div style="width: 60px; height: 60px; background: #ddd; margin-bottom: 10px;"></div>
-            <div id="song-title">Select Track...</div>
-            
-            <div class="progress-container">
-                <input type="range" id="progressBar" min="0" max="100" value="0" onchange="seekAudio(this.value)">
-                <div class="time-info">
-                    <span id="time-current">0:00</span>
-                    <span id="time-total">0:00</span>
+    <div class="top-row">
+        <div class="ipod-body">
+            <div class="screen">
+                <div style="width: 60px; height: 60px; background: #ddd; margin-bottom: 10px;"></div>
+                <div id="song-title">Select Track...</div>
+                
+                <div class="progress-container">
+                    <input type="range" id="progressBar" min="0" max="100" value="0" onchange="seekAudio(this.value)">
+                    <div class="time-info">
+                        <span id="time-current">0:00</span>
+                        <span id="time-total">0:00</span>
+                    </div>
                 </div>
             </div>
-        </div>
 
         <div class="controls-container">
             <div class="click-wheel">
