@@ -5,9 +5,6 @@ import queue
 import time
 from flask import Flask, render_template, request, jsonify
 
-# ==========================================
-# WINDOWS OS FIX: Locate the VLC Device Driver
-# ==========================================
 try:
     os.add_dll_directory(r'C:\Program Files\VideoLAN\VLC')
 except AttributeError:
@@ -15,27 +12,22 @@ except AttributeError:
 
 app = Flask(__name__)
 
-# --- HARDWARE MEMORY MAP ---
 COMMAND_QUEUE = queue.Queue()  # FIFO for deferred interrupt processing
 AUDIO_RING_BUFFER = queue.Queue(maxsize=10) 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Scan for MP3s in the root folder
 playlist = [os.path.join(BASE_DIR, f) for f in os.listdir(BASE_DIR) if f.endswith('.mp3')]
 current_track_index = 0
 
-# Peripheral Hardware (VLC)
+# "Hardware" (VLC)
 player = vlc.MediaPlayer()
-# --- 1. INTERRUPT SERVICE ROUTINE (ISR) ---
-def gpio_interrupt_handler(signal_type, payload=None):
-    """
-    Simulates a Hardware Interrupt handler.
-    Triggered by the Flask 'Signal Bus' (UI Buttons).
-    """
-    print(f"\n[IRQ] Interrupt Detected on GPIO_{signal_type}")
+
+# I/O interrupt handler -> triggered by 'signal bus' which is the buttons in the UI
+def io_interrupt_handler(signal_type, payload=None):
+    print(f"\n[IRQ] Interrupt Detected on IO_{signal_type}")
     COMMAND_QUEUE.put({'type': signal_type, 'data': payload})
 
-# --- 2. THE MAIN SYSTEM LOOP (CPU) ---
+# main audio loop
 def audio_manager_thread():
     global current_track_index
     print(f"[SYSTEM] Booting... Found {len(playlist)} files in root.")
@@ -49,7 +41,9 @@ def audio_manager_thread():
     buffer_consume_tick = 0
     
     while True:
-        # A. Command Decoder: Only process if there's an interrupt in the queue
+        # command queue -> when button is pressed a command is added to the command queue and the CPU
+        # decides whether or not to handle it and then does the command
+
         if not COMMAND_QUEUE.empty():
             cmd = COMMAND_QUEUE.get()
             print(f"[CPU] Execution Unit: Handling {cmd['type']}")
@@ -67,6 +61,7 @@ def audio_manager_thread():
                     player.set_media(media)
                     player.play()
                     print(f"[SYSTEM] Loaded: {playlist[current_track_index]}")
+                    
                     # Clear buffer on song switch
                     while not AUDIO_RING_BUFFER.empty():
                         AUDIO_RING_BUFFER.get()
@@ -96,7 +91,9 @@ def audio_manager_thread():
                 buffer_fill_tick = 0
                 buffer_consume_tick = 0
 
-        # B. DMA & Buffer Management (Only runs if music is active)
+        # DMA & Buffer Management -> when audio is output through the listening device (ex. headphones)
+        # audio is "produced" then "consumed" by the headphone output
+        # buffer is to preload audio so that even if a command occurs, the audio is never forced to stop due to process management
         if player.is_playing():
             buffer_fill_tick += 1
             buffer_consume_tick += 1
@@ -117,8 +114,7 @@ def audio_manager_thread():
 # Start the 'Microcontroller' Thread
 threading.Thread(target=audio_manager_thread, daemon=True).start()
 
-# --- 3. SIGNAL BUS (Flask Routes) ---
-# These must match the 'fetch' routes in your index.html
+# SIGNAL BUS (Flask Routes) -> logic for the buttons in the virtual mp3 player
 
 @app.route('/')
 def home():
@@ -126,29 +122,29 @@ def home():
 
 @app.route('/play', methods=['POST'])
 def trigger_play():
-    gpio_interrupt_handler("PLAY")
+    io_interrupt_handler("PLAY")
     return jsonify({"status": "ACK"})
 
 @app.route('/next', methods=['POST'])
 def trigger_next():
-    gpio_interrupt_handler("NEXT")
+    io_interrupt_handler("NEXT")
     return jsonify({"status": "ACK"})
 
 @app.route('/prev', methods=['POST'])
 def trigger_prev():
-    gpio_interrupt_handler("PREV")
+    io_interrupt_handler("PREV")
     return jsonify({"status": "ACK"})
 
 @app.route('/volume', methods=['POST'])
 def trigger_volume():
     level = request.form.get('level')
-    gpio_interrupt_handler("VOLUME", payload=level)
+    io_interrupt_handler("VOLUME", payload=level)
     return jsonify({"status": "ACK"})
 
 @app.route('/seek', methods=['POST'])
 def trigger_seek():
     pos = request.form.get('pos')
-    gpio_interrupt_handler("SEEK", payload=pos)
+    io_interrupt_handler("SEEK", payload=pos)
     return jsonify({"status": "ACK"})
 
 @app.route('/status')
@@ -176,5 +172,4 @@ def get_buffer_status():
     })
 
 if __name__ == '__main__':
-    # use_reloader=False prevents the thread from starting twice
     app.run(debug=True, port=5000, use_reloader=False)
