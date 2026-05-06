@@ -91,6 +91,10 @@ def audio_manager_thread():
 
             elif cmd['type'] == "SEEK":
                 player.set_position(float(cmd['data']))
+                while not AUDIO_RING_BUFFER.empty():
+                    AUDIO_RING_BUFFER.get()
+                buffer_fill_tick = 0
+                buffer_consume_tick = 0
 
         # B. DMA & Buffer Management (Only runs if music is active)
         if player.is_playing():
